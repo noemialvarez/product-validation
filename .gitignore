@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# venv
+venv/
+.venv/
+env/
+
+# Generated reports — these contain user data and may be sensitive.
+# On Render they live on the persistent disk, not in the repo.
+reports/
+
+# Local secrets / personal info
+.env
+*.docx
+*.docx:Zone.Identifier
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Test artifacts
+/tmp/
+*.pdf
