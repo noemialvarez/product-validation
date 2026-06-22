@@ -734,6 +734,129 @@ DISCARD IF: [specific conditions that would kill the idea]
 Specific steps to take this week to test the most critical assumption."""
 
 
+# ── Synthetic interview prompts ───────────────────────────────────────────────
+def _personas_prompt(name, desc):
+    return f"""You are a B2B market researcher building a diverse panel of synthetic customers
+to interview about this product:
+
+PRODUCT: {name}
+DESCRIPTION: {desc}
+{_CTX}
+
+Generate 20 FICTIONAL but realistic B2B customer personas. Diversify across:
+- Industries (mix of verticals plausible for this product)
+- Geographies (mix of countries, with Europe + Switzerland weighted higher)
+- Company sizes (range from 50 to 5000 employees)
+- Roles (mix of decision-makers like VPs/Directors and influencers like Managers/Analysts)
+
+Return ONLY a JSON array (no prose, no markdown fences) with exactly 20 objects of this shape:
+[
+  {{"company": "Fictional Co Name", "title": "Job Title", "industry": "Industry vertical",
+    "geography": "Country", "size": "X-Y employees"}},
+  ...
+]
+
+Make company names plausible and varied (not generic "Acme"). No duplicates."""
+
+
+_MOMS_TEST_RULES = """The Mom Test methodology (Rob Fitzpatrick):
+1. Talk about THEIR life, not your idea
+2. Ask about SPECIFICS IN THE PAST, never opinions or hypotheticals about the future
+3. Talk less, listen more
+4. No leading questions ("Don't you think...", "Would you pay for...")
+5. Dig into the actual problem — frequency, current workarounds, real costs"""
+
+
+_JTBD_RULES = """Jobs-To-Be-Done methodology (Clayton Christensen / Bob Moesta):
+1. Uncover the "job" they hire products to do in this category
+2. Map the FORCES: push (current pain), pull (attraction of new), anxiety (worry about switching), habit (inertia)
+3. Map the timeline: first thought → active looking → deciding → first use → habit
+4. Focus on STRUGGLING MOMENTS — what triggered the search for a new solution
+5. Surface desired OUTCOMES, not feature requests"""
+
+
+def _interview_prompt(persona, name, desc, methodology):
+    rules = _MOMS_TEST_RULES if methodology == "Mom's Test" else _JTBD_RULES
+    return f"""You are conducting a 30-minute discovery interview with the synthetic customer below.
+You write the customer's responses BASED ON realistic behavior of someone in their role/industry/geo.
+
+CUSTOMER:
+- Company: {persona.get('company','')}
+- Title: {persona.get('title','')}
+- Industry: {persona.get('industry','')}
+- Geography: {persona.get('geography','')}
+- Size: {persona.get('size','')}
+
+PRODUCT being evaluated (do NOT mention it during the interview — discover their world first):
+{name} — {desc}
+
+METHODOLOGY:
+{rules}
+
+Output as markdown, following this structure exactly:
+
+## SUMMARY HIGHLIGHTS
+- **[Keyword]:** key insight in max 15 words
+- **[Keyword]:** key insight in max 15 words
+- **[Keyword]:** key insight in max 15 words
+- **[Keyword]:** key insight in max 15 words
+- **[Keyword]:** key insight in max 15 words
+
+---
+
+## Persona Snapshot
+2-3 sentence summary of who this person is, what their role demands, and what their week looks like.
+
+## Interview
+A back-and-forth dialogue with 8-10 Q&A exchanges. Format each as:
+
+**Interviewer:** question text
+
+**{persona.get('title','Interviewee')}:** answer text
+
+Every question must follow the methodology rules. Responses must be SPECIFIC (named tools, real numbers, named past events) — no generic answers.
+
+## Key Insights
+4-6 bullet points of what we actually learned. Distinguish FACTS (what they said/did) from INTERPRETATIONS (what we infer)."""
+
+
+def _interview_synthesis_prompt(interviews_text, methodology, name):
+    return f"""You are a B2B research lead. Synthesize the findings from {interviews_text.count('## Persona Snapshot')} discovery
+interviews into actionable signal for the founder.
+
+METHODOLOGY: {methodology}
+PRODUCT: {name}
+
+INTERVIEWS:
+{interviews_text[:18000]}
+
+Output as markdown, following this structure exactly:
+
+## SUMMARY HIGHLIGHTS
+- **[Keyword]:** the single most important takeaway (max 15 words)
+- **[Keyword]:** crisp insight in max 15 words
+- **[Keyword]:** crisp insight in max 15 words
+- **[Keyword]:** crisp insight in max 15 words
+- **[Keyword]:** crisp insight in max 15 words
+
+---
+
+## Common Patterns
+3-5 paragraphs identifying patterns that show up across interviews: shared pain points, shared workarounds, shared language.
+
+## Surprising Findings
+2-3 paragraphs on what contradicted founder assumptions, or where customers diverged from each other in instructive ways.
+
+## Highest-Pain Segments
+Which persona profiles (industry + size + role) showed the most acute, urgent pain that aligns with the product?
+
+## What To Test Next
+3 specific assumptions to validate next — phrased as testable claims, not vague questions.
+
+## Confidence Level
+HIGH / MEDIUM / LOW with one sentence on what would move the dial."""
+
+
 # ── API call ──────────────────────────────────────────────────────────────────
 def call_claude(prompt: str, use_web_search: bool = False) -> str:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -1455,6 +1578,136 @@ def main():
         render_tab("customers")
     with t5:
         _render_reports()
+
+    # ── Synthetic Interviews (only when a full evaluation exists) ──
+    _render_synthetic_interviews(product_name, product_desc)
+
+
+def _render_synthetic_interviews(product_name: str, product_desc: str):
+    """Multi-step flow: generate personas → user selects → pick method → run interviews → synthesis."""
+    have_report = all(
+        st.session_state.get(k) for k in ("market", "competitors", "customers", "synthesis")
+    )
+    if not have_report:
+        return
+
+    st.markdown(
+        '<h2 style="margin-top:2.5rem">🎭 Synthetic Interviews</h2>'
+        '<p style="color:#6b7280;margin-top:-.3rem;margin-bottom:1rem">'
+        "Generate fictional B2B customers and run discovery interviews against your product.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # Step 1 — generate 20 personas (only if not yet generated for this run)
+    if not st.session_state.get("personas"):
+        if st.button("🎭  Synthetic Interviews", key="gen_personas"):
+            with st.spinner("Generating 20 diverse customer personas…"):
+                try:
+                    raw = call_claude(_personas_prompt(product_name, product_desc))
+                    m = re.search(r"\[\s*\{.*\}\s*\]", raw, re.DOTALL)
+                    if not m:
+                        st.error("Couldn't parse personas from the model output. Try again.")
+                        return
+                    personas = json.loads(m.group(0))
+                    if not isinstance(personas, list) or not personas:
+                        st.error("Empty or invalid persona list. Try again.")
+                        return
+                    st.session_state["personas"] = personas
+                    st.session_state.pop("interviews", None)
+                    st.session_state.pop("interview_synthesis", None)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Persona generation failed: {e}")
+        return
+
+    # Step 2 — show personas, let user select
+    st.markdown(f"**{len(st.session_state['personas'])} synthetic customers** — select the ones you want to interview:")
+    selected_idx = []
+    for i, p in enumerate(st.session_state["personas"]):
+        label = (
+            f"**{p.get('company', '?')}** — {p.get('title', '?')} · "
+            f"{p.get('industry', '?')} · {p.get('geography', '?')} · {p.get('size', '?')}"
+        )
+        if st.checkbox(label, key=f"persona_chk_{i}"):
+            selected_idx.append(i)
+
+    if not selected_idx:
+        st.info("Select at least one customer to proceed.")
+        # Allow regenerating personas
+        if st.button("Generate a new panel", key="regen_personas"):
+            st.session_state.pop("personas", None)
+            st.rerun()
+        return
+
+    # Step 3 — methodology + generate
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        method = st.radio(
+            "Interview methodology",
+            ["Mom's Test", "JTBD"],
+            horizontal=True,
+            help=(
+                "Mom's Test: focuses on the customer's past behavior — what they did, not what they think they'd do. "
+                "JTBD: focuses on the 'job' the customer hires products for, and the forces around switching."
+            ),
+            key="method_choice",
+        )
+    with col2:
+        st.write("")  # vertical alignment
+        run_clicked = st.button(f"Generate {len(selected_idx)} Interviews", key="gen_interviews")
+
+    if run_clicked:
+        interviews = {}
+        progress = st.progress(0, text="Starting interviews…")
+        for n, idx in enumerate(selected_idx, start=1):
+            persona = st.session_state["personas"][idx]
+            progress.progress(
+                (n - 1) / (len(selected_idx) + 1),
+                text=f"Interviewing {persona.get('company', '?')} ({n}/{len(selected_idx)})…",
+            )
+            try:
+                interviews[idx] = call_claude(_interview_prompt(persona, product_name, product_desc, method))
+            except Exception as e:
+                interviews[idx] = f"**Interview error:** {e}"
+
+        progress.progress(
+            len(selected_idx) / (len(selected_idx) + 1),
+            text="Synthesizing across all interviews…",
+        )
+        # Concatenate all interviews for the synthesis call
+        combined = "\n\n---\n\n".join(
+            f"### {st.session_state['personas'][i].get('company','?')} — {st.session_state['personas'][i].get('title','?')}\n\n{txt}"
+            for i, txt in interviews.items()
+        )
+        try:
+            synthesis = call_claude(_interview_synthesis_prompt(combined, method, product_name))
+        except Exception as e:
+            synthesis = f"**Synthesis error:** {e}"
+
+        progress.progress(1.0, text="Done")
+        st.session_state["interviews"] = interviews
+        st.session_state["interview_synthesis"] = synthesis
+        st.session_state["interview_method"] = method
+        st.rerun()
+
+    # Step 4 — display interviews + synthesis (styled like main report sections)
+    if st.session_state.get("interviews"):
+        st.markdown("---")
+        st.markdown(f"### 🧠 Interview Synthesis · *{st.session_state.get('interview_method','')}*")
+        summ, body = parse_sections(st.session_state["interview_synthesis"])
+        if summ:
+            st.markdown(summary_html(summ), unsafe_allow_html=True)
+        st.markdown(body)
+
+        st.markdown("---")
+        st.markdown("### 💬 Individual Interviews")
+        for idx, text in st.session_state["interviews"].items():
+            p = st.session_state["personas"][idx]
+            with st.expander(f"{p.get('company', '?')} — {p.get('title', '?')} · {p.get('industry', '?')}"):
+                isumm, ibody = parse_sections(text)
+                if isumm:
+                    st.markdown(summary_html(isumm), unsafe_allow_html=True)
+                st.markdown(ibody)
 
 
 if __name__ == "__main__":
