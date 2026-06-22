@@ -843,10 +843,11 @@ body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #33415
 .stripe { width: 100%; border-collapse: collapse; margin: 0 0 .9em; }
 .stripe td { padding: 0; height: 4px; border: none; }
 
-/* Cover title — "Idea Validation" in the gradient's purple stop (xhtml2pdf can't do gradient text) */
+/* Cover logo + title — mirrors the web header design */
+.cover-logo { height: 32pt; margin: 0 0 .5em; }
 h1.cover-title {
     font-size: 30pt;
-    color: #a855f7;
+    color: #a855f7;                       /* gradient's purple stop — xhtml2pdf can't render gradient text */
     margin: 0 0 .25em;
     font-weight: bold;
     line-height: 1.05;
@@ -871,7 +872,7 @@ h1.cover-title {
 .field-value {
     font-size: 10pt;
     color: #0f172a;
-    background: rgba(204, 251, 241, 0.30);   /* same light teal wash as app inputs */
+    background: rgba(204, 251, 241, 0.12);   /* very light teal — same hue, much softer */
     padding: .6em .8em;
     border-radius: 6px;
     margin: 0;
@@ -881,9 +882,8 @@ h1.cover-title {
 h1.section-title {
     font-size: 17pt;
     color: #a855f7;                       /* purple-500 */
-    border-bottom: 1px solid #e5e7eb;     /* light grey, no more teal */
-    padding-bottom: .3em;
-    margin: 0 0 .8em;
+    padding: 0;
+    margin: 0 0 .9em;                     /* matches .stripe bottom margin → equal space above/below */
     font-weight: bold;
 }
 
@@ -928,12 +928,22 @@ a { color: #0d9488; text-decoration: none; }
     padding: 1em 1.3em;
     margin: 1em 0 1.4em;
 }
-.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .7em; }
-.toc-main { font-weight: bold; color: #0d9488; margin-top: .55em; font-size: 10.5pt; }
-.toc-sub { margin-left: 1.3em; font-size: 9.5pt; color: #6b7280; margin-top: .15em; }
+.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .55em; }
+.toc-main { font-weight: bold; color: #0d9488; margin-top: .28em; font-size: 10.5pt; }
+.toc-sub { margin-left: 1.3em; font-size: 9.5pt; color: #6b7280; margin-top: .05em; }
 
-/* Horizontal rules — light grey, never black */
+/* Horizontal rules — light grey, never black.
+   xhtml2pdf renders raw <hr> as a thick black bar regardless of CSS, so the
+   build step rewrites <hr> → <div class="section-divider"></div>.            */
 hr { border: none; border-top: 1px solid #e5e7eb; margin: .8em 0; }
+.section-divider {
+    height: 1px;
+    background-color: #e5e7eb;
+    margin: 1em 0;
+    border: none;
+    font-size: 1px;
+    line-height: 1px;
+}
 
 .page-break { page-break-before: always; }
 """
@@ -966,7 +976,8 @@ def _section_headings(body_md: str):
 
 
 def _md_to_html_with_anchors(body_md: str, key_prefix: str) -> str:
-    """Markdown → HTML, injecting anchor ids on each h2 (## heading)."""
+    """Markdown → HTML, injecting anchor ids on each h2 and replacing <hr>
+    with a styled div (xhtml2pdf renders raw <hr> as a thick black bar)."""
     html = md_lib.markdown(body_md, extensions=["tables", "fenced_code"])
 
     def add_anchor(match):
@@ -975,7 +986,9 @@ def _md_to_html_with_anchors(body_md: str, key_prefix: str) -> str:
         anchor = f"{key_prefix}-{_slug(plain)}"
         return f'<a name="{anchor}"></a><h2>{inner}</h2>'
 
-    return re.sub(r"<h2>(.*?)</h2>", add_anchor, html, flags=re.DOTALL)
+    html = re.sub(r"<h2>(.*?)</h2>", add_anchor, html, flags=re.DOTALL)
+    html = re.sub(r"<hr\s*/?>", '<div class="section-divider"></div>', html)
+    return html
 
 
 def _summary_html_pdf(summary_md: str) -> str:
@@ -1036,11 +1049,14 @@ def build_pdf_bytes(report: dict) -> bytes:
     ts = report.get("timestamp", "")
     source = "Live web search" if report.get("web_search") else "Training knowledge"
 
-    # Cover header — gradient title "Idea Validation" + four chip subtitle (mirrors the app header)
+    # Cover header — mirrors the app header (logo + "Product Validation" title + four chips)
     parts.append(
         '<div class="card">'
         + _GRADIENT_STRIPE
-        + '<h1 class="cover-title">Idea Validation</h1>'
+        + '<img class="cover-logo" '
+          'src="https://insightsphere.co/wp-content/uploads/2024/03/logo-insightsphere.svg" '
+          'alt="InsightSphere" />'
+        + '<h1 class="cover-title">Product Validation</h1>'
         + '<div class="cover-subtitle">'
           '<span>B2B market intelligence</span> &middot; '
           '<span>Competitor mapping</span> &middot; '
