@@ -271,13 +271,13 @@ section[data-testid="stSidebar"] { display: none; }
 .is-header p { color: #6b7280; margin: 0; font-size: .95rem; }
 .is-header p .chip { color: #0f172a; font-weight: 500; }
 
-/* ── Inputs (text input + textarea) — borderless on light teal wash ── */
+/* ── Inputs (text input + textarea) — borderless on very light teal wash ── */
 .stTextInput input,
 .stTextArea textarea,
 [data-baseweb="textarea"] textarea,
 [data-baseweb="input"] input {
     border: 1px solid transparent !important;
-    background: rgba(204, 251, 241, 0.30) !important;  /* teal-50/30 */
+    background: rgba(204, 251, 241, 0.12) !important;  /* matches PDF — same hue, much softer */
     border-radius: 8px !important;
     color: #0f172a;
 }
@@ -928,9 +928,9 @@ a { color: #0d9488; text-decoration: none; }
     padding: 1em 1.3em;
     margin: 1em 0 1.4em;
 }
-.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .55em; }
-.toc-main { font-weight: bold; color: #0d9488; margin-top: .28em; font-size: 10.5pt; }
-.toc-sub { margin-left: 1.3em; font-size: 9.5pt; color: #6b7280; margin-top: .05em; }
+.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .4em; }
+.toc-main { font-weight: bold; color: #0d9488; margin-top: .15em; font-size: 10.5pt; line-height: 1.2; }
+.toc-sub { margin-left: 1.3em; font-size: 9.5pt; color: #6b7280; margin-top: 0; line-height: 1.2; }
 
 /* Horizontal rules — light grey, never black.
    xhtml2pdf renders raw <hr> as a thick black bar regardless of CSS, so the
@@ -987,11 +987,11 @@ def _md_to_html_with_anchors(body_md: str, key_prefix: str) -> str:
         return f'<a name="{anchor}"></a><h2>{inner}</h2>'
 
     html = re.sub(r"<h2>(.*?)</h2>", add_anchor, html, flags=re.DOTALL)
-    # xhtml2pdf doesn't paint background-color on empty divs reliably — use a
-    # 1-cell colored table so the grey separator is actually visible.
+    # Render <hr> as a 1-cell table whose td has a top border — pisa paints
+    # td borders reliably (background-color on empty cells is unreliable).
     grey_line = (
         '<table style="width:100%;border-collapse:collapse;margin:.9em 0">'
-        '<tr><td style="height:1px;background:#e5e7eb;font-size:1px;line-height:1px;border:none"></td></tr>'
+        '<tr><td style="border-top:1px solid #d1d5db;font-size:1pt;line-height:1pt">&nbsp;</td></tr>'
         '</table>'
     )
     html = re.sub(r"<hr\s*/?>", grey_line, html)
