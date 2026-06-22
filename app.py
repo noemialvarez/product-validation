@@ -271,13 +271,13 @@ section[data-testid="stSidebar"] { display: none; }
 .is-header p { color: #6b7280; margin: 0; font-size: .95rem; }
 .is-header p .chip { color: #0f172a; font-weight: 500; }
 
-/* ── Inputs (text input + textarea) — borderless on very light teal wash ── */
+/* ── Inputs (text input + textarea) — borderless on light teal wash ── */
 .stTextInput input,
 .stTextArea textarea,
 [data-baseweb="textarea"] textarea,
 [data-baseweb="input"] input {
     border: 1px solid transparent !important;
-    background: rgba(204, 251, 241, 0.12) !important;  /* matches PDF — same hue, much softer */
+    background: rgba(204, 251, 241, 0.30) !important;  /* teal-50/30 */
     border-radius: 8px !important;
     color: #0f172a;
 }
