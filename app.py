@@ -850,6 +850,13 @@ body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #33415
     padding: 1em 1.2em;
     margin: .6em 0 1.2em;
 }
+/* Summary card sits directly below a section title — no top padding/margin so
+   its gradient stripe is the same distance from the title as the top stripe. */
+.summary-card {
+    background: white;
+    padding: 0 1.2em 1em;
+    margin: 0 0 1.2em;
+}
 .stripe { width: 100%; border-collapse: collapse; margin: 0 0 .9em; }
 .stripe td { padding: 0; height: 4px; border: none; }
 
@@ -882,7 +889,7 @@ h1.cover-title {
 .field-value {
     font-size: 10pt;
     color: #0f172a;
-    background: rgba(204, 251, 241, 0.12);   /* very light teal — same hue, much softer */
+    background: #f5f5f5;                     /* very light grey — soft, neutral */
     padding: .6em .8em;
     border-radius: 6px;
     margin: 0;
@@ -938,9 +945,9 @@ a { color: #0d9488; text-decoration: none; }
     padding: 1em 1.3em;
     margin: 1em 0 1.4em;
 }
-.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .4em; }
-.toc-main { font-weight: bold; color: #0d9488; margin-top: .15em; font-size: 10.5pt; line-height: 1.2; }
-.toc-sub { margin-left: 1.3em; font-size: 9.5pt; color: #6b7280; margin-top: 0; line-height: 1.2; }
+.toc-title { font-size: 13pt; color: #a855f7; font-weight: bold; margin: 0 0 .3em; line-height: 1; }
+.toc-main { font-weight: bold; color: #0d9488; margin: 0; padding: 0; font-size: 10pt; line-height: 1.05; }
+.toc-sub { margin: 0 0 0 1.3em; padding: 0; font-size: 9pt; color: #6b7280; line-height: 1.05; }
 
 /* Horizontal rules — light grey, never black.
    xhtml2pdf renders raw <hr> as a thick black bar regardless of CSS, so the
@@ -1041,8 +1048,11 @@ def _summary_html_pdf(summary_md: str) -> str:
             f'<td style="padding:0 0 0 .3em;border:none;font-size:9.5pt;line-height:1.5;color:#334155;">{body}</td>'
             "</tr></table>"
         )
+    # Use a distinct class with no top padding/margin so the gradient stripe
+    # sits flush against the section title above — keeps the two stripes
+    # equidistant from the title text.
     return (
-        '<div class="card">'
+        '<div class="summary-card">'
         + _GRADIENT_STRIPE
         + '<div class="summary-label">Key Highlights</div>'
         + "".join(rows)
