@@ -9,12 +9,22 @@ import re
 import os
 import json
 import io
+import base64
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pypdf
 import markdown as md_lib
 from xhtml2pdf import pisa
+
+# Logo embedded as a base64 data URI — xhtml2pdf can't render the remote SVG
+# (it's a Figma export wrapping a PNG in a pattern fill that svglib doesn't
+# handle). The local PNG is resized to ~190x80 so it adds ~9KB.
+_LOGO_PATH = Path(__file__).parent / "logo-insightsphere.png"
+if _LOGO_PATH.exists():
+    _LOGO_DATA_URI = f"data:image/png;base64,{base64.b64encode(_LOGO_PATH.read_bytes()).decode()}"
+else:
+    _LOGO_DATA_URI = "https://insightsphere.co/wp-content/uploads/2024/03/logo-insightsphere.svg"
 
 REPORTS_DIR = Path(__file__).parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
@@ -1060,9 +1070,7 @@ def build_pdf_bytes(report: dict) -> bytes:
     parts.append(
         '<div class="card">'
         + _GRADIENT_STRIPE
-        + '<img class="cover-logo" '
-          'src="https://insightsphere.co/wp-content/uploads/2024/03/logo-insightsphere.svg" '
-          'alt="InsightSphere" />'
+        + f'<img class="cover-logo" src="{_LOGO_DATA_URI}" alt="InsightSphere" />'
         + '<h1 class="cover-title">Product Validation</h1>'
         + '<div class="cover-subtitle">'
           '<span>B2B market intelligence</span> &middot; '
