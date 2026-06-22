@@ -987,7 +987,14 @@ def _md_to_html_with_anchors(body_md: str, key_prefix: str) -> str:
         return f'<a name="{anchor}"></a><h2>{inner}</h2>'
 
     html = re.sub(r"<h2>(.*?)</h2>", add_anchor, html, flags=re.DOTALL)
-    html = re.sub(r"<hr\s*/?>", '<div class="section-divider"></div>', html)
+    # xhtml2pdf doesn't paint background-color on empty divs reliably — use a
+    # 1-cell colored table so the grey separator is actually visible.
+    grey_line = (
+        '<table style="width:100%;border-collapse:collapse;margin:.9em 0">'
+        '<tr><td style="height:1px;background:#e5e7eb;font-size:1px;line-height:1px;border:none"></td></tr>'
+        '</table>'
+    )
+    html = re.sub(r"<hr\s*/?>", grey_line, html)
     return html
 
 
