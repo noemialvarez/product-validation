@@ -1359,6 +1359,126 @@ def _pdf_filename(product_name: str) -> str:
     return f"{ts}_{slug}.pdf"
 
 
+def build_interviews_pdf_bytes(
+    product_name: str, product_desc: str, method: str,
+    personas: list, selected_idx: list, interviews: dict, synthesis: str,
+) -> bytes:
+    """Build a styled PDF of synthetic interviews — cover + TOC + synthesis section + each interview."""
+    parts = []
+    name = _escape_html(product_name or "Product")
+    desc = _escape_html(product_desc or "")
+    ts = datetime.now().strftime("%d %b %Y, %H:%M")
+
+    # Cover header — same shape as the main report PDF
+    parts.append(
+        '<div class="card">'
+        + _GRADIENT_STRIPE
+        + f'<img class="cover-logo" src="{_LOGO_DATA_URI}" alt="InsightSphere" />'
+        + '<h1 class="cover-title">Synthetic Interviews</h1>'
+        + '<div class="cover-subtitle">'
+          f'<span>{_escape_html(method)}</span> &middot; '
+          f'<span>{len(selected_idx)} interviews</span> &middot; '
+          f'<span>{_escape_html(ts)}</span>'
+        '</div>'
+        + "</div>"
+    )
+
+    # Product / description fields
+    parts.append(
+        '<div class="card">'
+        + _GRADIENT_STRIPE
+        + '<div class="field-label">Product evaluated</div>'
+        + f'<div class="field-value">{name}</div>'
+        + (
+            '<div class="field-label">Brief description</div>'
+            f'<div class="field-value">{desc}</div>'
+            if desc else ""
+        )
+        + "</div>"
+    )
+
+    # Table of contents
+    toc = ['<div class="toc">', _GRADIENT_STRIPE, '<div class="toc-title">Contents</div>']
+    # Synthesis branch
+    toc.append('<div class="toc-main"><a href="#synth-section">Synthesis</a></div>')
+    _, syn_body = parse_sections(synthesis or "")
+    for h_text, h_slug in _section_headings(syn_body):
+        toc.append(
+            f'<div class="toc-sub"><a href="#syn-{h_slug}">{_escape_html(h_text)}</a></div>'
+        )
+    # Each interview branch
+    for idx in selected_idx:
+        p = personas[idx] if idx < len(personas) else {}
+        label = f"{p.get('company','?')} — {p.get('title','?')}"
+        anchor = f"interview-{idx}"
+        toc.append(
+            f'<div class="toc-main"><a href="#{anchor}">{_escape_html(label)}</a></div>'
+        )
+        _, body = parse_sections(interviews.get(idx, "") or "")
+        for h_text, h_slug in _section_headings(body):
+            toc.append(
+                f'<div class="toc-sub"><a href="#int{idx}-{h_slug}">{_escape_html(h_text)}</a></div>'
+            )
+    toc.append("</div>")
+    parts.append("".join(toc))
+
+    # Synthesis section
+    summ, body = parse_sections(synthesis or "")
+    parts.append('<div class="page-break"></div>')
+    parts.append(_GRADIENT_STRIPE)
+    parts.append('<a name="synth-section"></a><h1 class="section-title">Synthesis</h1>')
+    if summ:
+        parts.append(_summary_html_pdf(summ))
+    parts.append(_md_to_html_with_anchors(body, "syn"))
+
+    # Each interview as its own section
+    for idx in selected_idx:
+        p = personas[idx] if idx < len(personas) else {}
+        label = f"{p.get('company','?')} — {p.get('title','?')}"
+        details = (
+            f"{p.get('industry','?')} &middot; "
+            f"{p.get('geography','?')} &middot; "
+            f"{p.get('size','?')}"
+        )
+        text = interviews.get(idx, "") or ""
+        i_summ, i_body = parse_sections(text)
+        parts.append('<div class="page-break"></div>')
+        parts.append(_GRADIENT_STRIPE)
+        parts.append(
+            f'<a name="interview-{idx}"></a>'
+            f'<h1 class="section-title">{_escape_html(label)}</h1>'
+        )
+        parts.append(
+            f'<p style="color:#6b7280;font-size:9pt;margin:-.4em 0 .8em">{details}</p>'
+        )
+        if i_summ:
+            parts.append(_summary_html_pdf(i_summ))
+        parts.append(_md_to_html_with_anchors(i_body, f"int{idx}"))
+
+    # Footer with page numbers
+    footer = (
+        '<div id="footer_content" class="footer">'
+        'Page <pdf:pagenumber/> of <pdf:pagecount/>'
+        "</div>"
+    )
+
+    html = (
+        "<html><head><meta charset='utf-8'>"
+        f"<style>{PDF_CSS}</style></head><body>"
+        f"{footer}"
+        f"{''.join(parts)}</body></html>"
+    )
+    buf = io.BytesIO()
+    pisa.CreatePDF(src=html, dest=buf, encoding="utf-8")
+    return buf.getvalue()
+
+
+def _interviews_pdf_filename(product_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (product_name or "interviews").lower()).strip("-")[:40] or "interviews"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{ts}_interviews_{slug}.pdf"
+
+
 def render_tab(key: str):
     """Render summary box + body for a given session_state key."""
     text = st.session_state.get(key, "")
@@ -1777,6 +1897,27 @@ def _render_synthetic_interviews(product_name: str, product_desc: str):
 
     # Step 4 — display interviews + synthesis (styled like main report sections)
     if st.session_state.get("interviews"):
+        # PDF download for the interview set
+        try:
+            interviews_pdf = build_interviews_pdf_bytes(
+                product_name=product_name,
+                product_desc=product_desc,
+                method=st.session_state.get("interview_method", ""),
+                personas=st.session_state["personas"],
+                selected_idx=list(st.session_state["interviews"].keys()),
+                interviews=st.session_state["interviews"],
+                synthesis=st.session_state.get("interview_synthesis", ""),
+            )
+            st.download_button(
+                "📄  Download Interviews as PDF",
+                data=interviews_pdf,
+                file_name=_interviews_pdf_filename(product_name),
+                mime="application/pdf",
+                key="dl_interviews_pdf",
+            )
+        except Exception as e:
+            st.warning(f"PDF generation failed: {e}")
+
         st.markdown("---")
         st.markdown(f"### 🧠 Interview Synthesis · *{st.session_state.get('interview_method','')}*")
         summ, body = parse_sections(st.session_state["interview_synthesis"])
