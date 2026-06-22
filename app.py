@@ -115,11 +115,78 @@ def save_report_to_notion(product_name, product_desc, results, web_search: bool)
             },
         })
 
-    client.pages.create(
+    created = client.pages.create(
         parent={"database_id": os.environ["NOTION_DATABASE_ID"]},
         properties=properties,
         children=children,
     )
+    return created.get("id")
+
+
+def save_interviews_to_notion(
+    interviews: dict, synthesis: str, personas: list, method: str,
+    product_name: str, parent_page_id: str | None = None,
+) -> str | None:
+    """Append a Synthetic Interviews block to an existing report page when
+    parent_page_id is known; otherwise create a new database row dedicated to
+    this interview set. Returns the page_id used (or None on failure)."""
+    client = _notion_client()
+    now = datetime.now()
+    method_label = method  # "Mom's Test" or "JTBD"
+
+    # Build the children blocks
+    children = [
+        {"object": "block", "type": "heading_2",
+         "heading_2": {"rich_text": [{"text": {"content": f"Synthetic Interviews · {method_label} · {now.strftime('%d %b %Y, %H:%M')}"}}]}},
+        {"object": "block", "type": "heading_3",
+         "heading_3": {"rich_text": [{"text": {"content": "Synthesis"}}]}},
+    ]
+    for chunk in _chunk(synthesis or ""):
+        children.append({
+            "object": "block", "type": "paragraph",
+            "paragraph": {"rich_text": [{"text": {"content": chunk}}]},
+        })
+    children.append({
+        "object": "block", "type": "heading_3",
+        "heading_3": {"rich_text": [{"text": {"content": "Interviews"}}]},
+    })
+    for idx, text in interviews.items():
+        p = personas[idx] if idx < len(personas) else {}
+        label = f"{p.get('company','?')} — {p.get('title','?')} · {p.get('industry','?')} · {p.get('geography','?')} · {p.get('size','?')}"
+        children.append({
+            "object": "block", "type": "heading_3",
+            "heading_3": {"rich_text": [{"text": {"content": label}}]},
+        })
+        for chunk in _chunk(text or ""):
+            children.append({
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": [{"text": {"content": chunk}}]},
+            })
+
+    if parent_page_id:
+        # Append to the existing evaluation page in batches of 95 (Notion limit is 100/req)
+        for i in range(0, len(children), 95):
+            client.blocks.children.append(block_id=parent_page_id, children=children[i : i + 95])
+        return parent_page_id
+
+    # Fallback — create a new page in the database
+    properties = {
+        "Product": {"title": [{"text": {"content": f"Interviews · {product_name or 'Untitled'}"[:200]}}]},
+        "Date": {"date": {"start": now.isoformat()}},
+        "Web Search": {"checkbox": False},
+        "Description": {"rich_text": [{"text": {"content": f"Synthetic interview set ({method_label})"}}]},
+    }
+    # Notion caps children to 100 on initial page create — split off the rest into appends
+    first_batch, rest = children[:95], children[95:]
+    created = client.pages.create(
+        parent={"database_id": os.environ["NOTION_DATABASE_ID"]},
+        properties=properties,
+        children=first_batch,
+    )
+    new_id = created.get("id")
+    for i in range(0, len(rest), 95):
+        client.blocks.children.append(block_id=new_id, children=rest[i : i + 95])
+    return new_id
 
 
 def load_reports_from_notion():
@@ -160,7 +227,10 @@ def save_report(product_name, product_desc, results, web_search: bool = False):
     """Save to Notion if configured; otherwise to the local filesystem."""
     if _notion_enabled():
         try:
-            save_report_to_notion(product_name, product_desc, results, web_search)
+            page_id = save_report_to_notion(product_name, product_desc, results, web_search)
+            # Remember the page so interviews can be appended to it later in this session.
+            if page_id:
+                st.session_state["report_page_id"] = page_id
             return
         except Exception as e:
             st.warning(f"Notion save failed: {e}. Falling back to local file.")
@@ -1683,6 +1753,21 @@ def _render_synthetic_interviews(product_name: str, product_desc: str):
             synthesis = call_claude(_interview_synthesis_prompt(combined, method, product_name))
         except Exception as e:
             synthesis = f"**Synthesis error:** {e}"
+
+        # Persist to Notion when configured — append to the evaluation page if
+        # we still have its id; otherwise create a new database entry.
+        if _notion_enabled():
+            try:
+                save_interviews_to_notion(
+                    interviews=interviews,
+                    synthesis=synthesis,
+                    personas=st.session_state["personas"],
+                    method=method,
+                    product_name=product_name,
+                    parent_page_id=st.session_state.get("report_page_id"),
+                )
+            except Exception as e:
+                st.warning(f"Saved locally but Notion sync failed: {e}")
 
         progress.progress(1.0, text="Done")
         st.session_state["interviews"] = interviews
